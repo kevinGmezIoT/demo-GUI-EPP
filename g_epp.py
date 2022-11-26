@@ -9,8 +9,7 @@ from PyQt5.QtGui import *
 import d_epp as design_epp
 
 # Importing YOLO v3 module to Detect Objects on image
-from yolo7_epp import run_inference_for_single_image
-from yolo7_epp import Work_track, Work_cam
+from yolo7_epp import Work_track, Work_cam, Work_image
 from threading import Thread
 
 """
@@ -64,25 +63,14 @@ class EppApp(QtWidgets.QMainWindow, design_epp.Ui_MainWindow):
 
         # Slicing only needed full path
         image_path = image_path[0]  # /home/my_name/Downloads/example.png
+        self.start_image(image_path)
 
-        # Passing full path to loaded image into YOLO v3 algorithm
-        results, text_result, state_result = run_inference_for_single_image(image_path)
-
-        # Opening resulted image with QPixmap class that is used to
-        # show image inside Label object
-        convertir_QT = QImage(results.data, results.shape[1], results.shape[0], results.shape[2]*results.shape[1],
-                              QImage.Format_RGB888)
-        pic = convertir_QT.scaled(640, 480, Qt.KeepAspectRatioByExpanding)
-        pixmap_image = QPixmap.fromImage(pic)
-
-        # Passing opened image to the Label object
-        self.l_image.setPixmap(pixmap_image)
-
-        # Getting opened image width and height
-        # And resizing Label object according to these values
-        self.l_image.resize(pixmap_image.width(), pixmap_image.height())
-        self.l_results.setText(text_result)
-        self.l_epp_state.setText(state_result)
+    def start_image(self, im_path):
+        self.Work = Work_image(im_path)
+        self.Work.start()
+        self.Work.Imageupd.connect(self.Imageupd_slot)
+        self.Work.Labelupd.connect(self.Labelupd_slot)
+        self.Work.Stateupd.connect(self.Stateupd_slot)
 
     def f_video_inference(self):
         self.clear()

@@ -23,126 +23,146 @@ from functions import epp_state, epp_state_track, load_model
 
 model = None
 
-def run_inference_for_single_image(im_path):
-    global model
+class Work_image(QThread):
+    Imageupd = pyqtSignal(QImage)
+    Labelupd = pyqtSignal(str)
+    Stateupd = pyqtSignal(str)
     threshold = 0.25
     iou_threshold = 0.45
-    box = []
-    cat = []
+    thickness = False
+    nobbox = False
 
-    with torch.no_grad():
-        # Initialize
-        set_logging()
-        device = select_device('0')
-        half = device.type != 'cpu'  # half precision only supported on CUDA
+    def __init__(self, path):
+        super().__init__()
+        self.im_path = path
+        self.dataset = None
 
-        if model == None:
-            # Load model
-            model = load_model()
+    def run(self):
+        global model
+        threshold = 0.25
+        iou_threshold = 0.45
+        box = []
+        cat = []
 
-        stride = int(model.stride.max())  # model stride
-        imgsz = check_img_size(640, s=stride)  # check img_size
-        # Set Dataloader
-        dataset = LoadImages(im_path, img_size=imgsz, stride=stride)
+        with torch.no_grad():
+            # Initialize
+            set_logging()
+            device = select_device('0')
+            half = device.type != 'cpu'  # half precision only supported on CUDA
 
-        # Get names and colors
-        names = model.module.names if hasattr(model, 'module') else model.names
-        colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
+            if model == None:
+                # Load model
+                model = load_model()
 
-        # Run inference
-        if device.type != 'cpu':
-            model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
-        old_img_w = old_img_h = imgsz
-        old_img_b = 1
+            stride = int(model.stride.max())  # model stride
+            imgsz = check_img_size(640, s=stride)  # check img_size
+            # Set Dataloader
+            self.dataset = LoadImages(self.im_path, img_size=imgsz, stride=stride)
 
-        t0 = time.time()
-        for path, img, im0s, vid_cap in dataset:
-            augment = False
-            img = torch.from_numpy(img).to(device)
-            img = img.half() if half else img.float()  # uint8 to fp16/32
-            img /= 255.0  # 0 - 255 to 0.0 - 1.0
-            if img.ndimension() == 3:
-                img = img.unsqueeze(0)
+            # Get names and colors
+            names = model.module.names if hasattr(model, 'module') else model.names
+            colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
 
-            # Warmup
-            if device.type != 'cpu' and (
-                    old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
-                old_img_b = img.shape[0]
-                old_img_h = img.shape[2]
-                old_img_w = img.shape[3]
-                for i in range(3):
-                    model(img, augment=augment)[0]
+            # Run inference
+            if device.type != 'cpu':
+                model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+            old_img_w = old_img_h = imgsz
+            old_img_b = 1
 
-            # Inference
-            t1 = time_synchronized()
-            with torch.no_grad():  # Calculating gradients would cause a GPU memory leak
-                pred = model(img, augment=augment)[0]
-            t2 = time_synchronized()
+            t0 = time.time()
+            for path, img, im0s, vid_cap in self.dataset:
+                augment = False
+                img = torch.from_numpy(img).to(device)
+                img = img.half() if half else img.float()  # uint8 to fp16/32
+                img /= 255.0  # 0 - 255 to 0.0 - 1.0
+                if img.ndimension() == 3:
+                    img = img.unsqueeze(0)
 
-            # Apply NMS
-            pred = non_max_suppression(pred, threshold, iou_threshold, classes=None,
-                                       agnostic=False)
-            t3 = time_synchronized()
+                # Warmup
+                if device.type != 'cpu' and (
+                        old_img_b != img.shape[0] or old_img_h != img.shape[2] or old_img_w != img.shape[3]):
+                    old_img_b = img.shape[0]
+                    old_img_h = img.shape[2]
+                    old_img_w = img.shape[3]
+                    for i in range(3):
+                        model(img, augment=augment)[0]
 
-            # Process detections
-            for i, det in enumerate(pred):  # detections per image
-                p, s, im0, frame = path, 'Clase\t\tCantidad\n', im0s, getattr(dataset, 'frame', 0)
+                # Inference
+                t1 = time_synchronized()
+                with torch.no_grad():  # Calculating gradients would cause a GPU memory leak
+                    pred = model(img, augment=augment)[0]
+                t2 = time_synchronized()
 
-                im0 = cv2.cvtColor(im0, cv2.COLOR_BGR2RGB)
-                p = Path(p)  # to Path
-                gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-                if len(det):
-                    # Rescale boxes from img_size to im0 size
-                    det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
+                # Apply NMS
+                pred = non_max_suppression(pred, threshold, iou_threshold, classes=None,
+                                           agnostic=False)
+                t3 = time_synchronized()
 
-                    # Print results
-                    for c in det[:, -1].unique():
-                        n = (det[:, -1] == c).sum()  # detections per class
-                        if names[int(c)] == 'person':
-                            name = 'persona'
-                        if names[int(c)] == 'hardhat':
-                            name = 'casco'
-                        if names[int(c)] == 'vest':
-                            name = 'chaleco'
-                        if names[int(c)] == 'glasses':
-                            name = 'lentes'
-                        if names[int(c)] == 'gloves':
-                            name = 'guantes'
-                        if names[int(c)] == 'with_mask':
-                            name = 'mascara'
-                        if names[int(c)] == 'without_mask':
-                            name = 'sin mascara'
-                        s += f"{name}:\t\t{n}\n"  # add to string
+                # Process detections
+                for i, det in enumerate(pred):  # detections per image
+                    p, s, im0, frame = path, 'Clase\t\tCantidad\n', im0s, getattr(self.dataset, 'frame', 0)
 
-                    # Write results
-                    index = 0
-                    for *xyxy, conf, cls in reversed(det):
-                        im_class = f'{names[int(cls)]}'
-                        if names[int(cls)] == 'person':
-                            name = 'persona'
-                        if names[int(cls)] == 'hardhat':
-                            name = 'casco'
-                        if names[int(cls)] == 'vest':
-                            name = 'chaleco'
-                        if names[int(cls)] == 'glasses':
-                            name = 'lentes'
-                        if names[int(cls)] == 'gloves':
-                            name = 'guantes'
-                        if names[int(cls)] == 'with_mask':
-                            name = 'mascara'
-                        if names[int(cls)] == 'without_mask':
-                            name = 'sin mascara'
-                        label = f'{name}: {index}'
-                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=1)
-                        box.append(xyxy)
-                        cat.append(im_class)
-                        index += 1
+                    im0 = cv2.cvtColor(im0, cv2.COLOR_BGR2RGB)
+                    p = Path(p)  # to Path
+                    gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+                    if len(det):
+                        # Rescale boxes from img_size to im0 size
+                        det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
-                    results = epp_state(box, cat, names)
-                    print(results)
-                # Print time (inference + NMS)
-                print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
-                return im0, s, results
+                        # Print results
+                        for c in det[:, -1].unique():
+                            n = (det[:, -1] == c).sum()  # detections per class
+                            if names[int(c)] == 'person':
+                                name = 'persona'
+                            if names[int(c)] == 'hardhat':
+                                name = 'casco'
+                            if names[int(c)] == 'vest':
+                                name = 'chaleco'
+                            if names[int(c)] == 'glasses':
+                                name = 'lentes'
+                            if names[int(c)] == 'gloves':
+                                name = 'guantes'
+                            if names[int(c)] == 'with_mask':
+                                name = 'mascara'
+                            if names[int(c)] == 'without_mask':
+                                name = 'sin mascara'
+                            s += f"{name}:\t\t{n}\n"  # add to string
+
+                        # Write results
+                        index = 0
+                        for *xyxy, conf, cls in reversed(det):
+                            im_class = f'{names[int(cls)]}'
+                            if names[int(cls)] == 'person':
+                                name = 'persona'
+                            if names[int(cls)] == 'hardhat':
+                                name = 'casco'
+                            if names[int(cls)] == 'vest':
+                                name = 'chaleco'
+                            if names[int(cls)] == 'glasses':
+                                name = 'lentes'
+                            if names[int(cls)] == 'gloves':
+                                name = 'guantes'
+                            if names[int(cls)] == 'with_mask':
+                                name = 'mascara'
+                            if names[int(cls)] == 'without_mask':
+                                name = 'sin mascara'
+                            label = f'{name}: {index}'
+                            plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=1)
+                            box.append(xyxy)
+                            cat.append(im_class)
+                            index += 1
+
+                        results, result_state = epp_state(box, cat, names)
+                    # Print time (inference + NMS)
+                    print(f'{s}Done. ({(1E3 * (t2 - t1)):.1f}ms) Inference, ({(1E3 * (t3 - t2)):.1f}ms) NMS')
+                    convertir_QT = QImage(im0.data, im0.shape[1], im0.shape[0], im0.shape[2] * im0.shape[1],
+                                          QImage.Format_RGB888)
+                    pic = convertir_QT.scaled(640, 480, Qt.KeepAspectRatioByExpanding)
+                    self.Imageupd.emit(pic)
+                    self.Labelupd.emit(results)
+                    self.Stateupd.emit(result_state)
+
+
 
 class Work_track(QThread):
     Imageupd = pyqtSignal(QImage)

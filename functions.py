@@ -116,7 +116,7 @@ def epp_state(bbox, categories=None, names=None):
     else:
         print("No people")
         results += "No hay personas"
-    return result_state
+    return results, result_state
 
 def epp_state_track(bbox, identities=None, categories=None, confidences=None, names=None):
     result_state = ''
