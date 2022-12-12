@@ -91,6 +91,7 @@ dict_api_to_send['frame']['features']['settings']['showOneBox'] = False
 for i in range(3):
     dict_detections['name'] = 'person'
     dict_detections['amount'] = 2
+    dict_detections['objects'] = []
     for j in range(2):
         dict_person_objects['id'] = '10'
         dict_person_objects['score'] = 0.5
@@ -99,10 +100,7 @@ for i in range(3):
         dict_person_objects['boundingBox']['x2'] = 110
         dict_person_objects['boundingBox']['x2'] = 40
         dict_detections['objects'].append(dict_person_objects)
-    #print(dict_detections)
     dict_api_to_send['frame']['features']['detections'].append(dict_detections)
-    dict_detections['objects'] = []
-
 print('')
 json_api_to_send = json.dumps(dict_api_to_send)
 print(json_api_to_send)
